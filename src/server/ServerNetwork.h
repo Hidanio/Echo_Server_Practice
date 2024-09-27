@@ -15,12 +15,10 @@ protected:
     tcp::socket socket_;
     std::vector<std::shared_ptr<tcp::socket>> peers_;
     tcp::endpoint leaderId_;
-    boost::asio::steady_timer timer_;
 
 public:
     NetworkContext(boost::asio::io_context &io_context, short port)
-            : io_context_(io_context), acceptor_(io_context, tcp::endpoint(tcp::v4(), port)), socket_(io_context),
-              timer_(io_context) {
+            : io_context_(io_context), acceptor_(io_context, tcp::endpoint(tcp::v4(), port)), socket_(io_context) {
         std::cout << "Node created on port " << port << "\n";
         StartAccept();
     }
