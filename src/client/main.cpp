@@ -15,10 +15,9 @@ public:
             : socket_(io_context_) {
         // Resolve the host and port
         tcp::resolver resolver(io_context_);
-        auto endpoints = resolver.resolve(host, std::to_string(port));
+        auto endpoint = resolver.resolve(host, std::to_string(port));
 
-        // Connect to the server
-        boost::asio::connect(socket_, endpoints);
+        boost::asio::connect(socket_, endpoint);
     }
 
     void SendMessage(const std::string &message) {
@@ -40,8 +39,6 @@ public:
 
         std::cout << "Response from server: " << response << std::endl;
     }
-
-
 };
 
 int main() {
