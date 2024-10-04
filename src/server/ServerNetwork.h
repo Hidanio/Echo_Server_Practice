@@ -23,22 +23,30 @@ public:
             : io_context_(io_context), acceptor_(io_context, tcp::endpoint(tcp::v4(), port)), socket_(io_context) {
         std::cout << "Node created on port " << port << "\n";
         StartAccept();
+        std::cout << "Zero" << "\n";
     }
 
     void StartAccept() {
+        std::cout << "One" << "\n";
         auto new_socket = std::make_shared<tcp::socket>(io_context_);
+        std::cout << new_socket.use_count() << "\n";
         acceptor_.async_accept(*new_socket, [this, new_socket](boost::system::error_code ec) {
             if (!ec) {
+                std::cout << "Two" << "\n";
                 auto peer = new_socket->remote_endpoint();
                 peers_.emplace_back(new_socket);
                 std::make_shared<Session>(new_socket, this)->Start(); // one session - one socket
                 std::cout << "Accepted connection from " << peer << "\n";
             }
+            std::cout << "Three" << "\n";
             StartAccept();
+            std::cout << "LAMBDA" << new_socket.use_count() << "\n";
         });
+        std::cout << "Four" << "\n";
+        std::cout << new_socket.use_count() << "\n";
     }
 
-    void SendMessageToPeer(std::shared_ptr<tcp::socket> socket, const std::string &message) {
+    void SendMessageToPeer(tcp::socket *socket, const std::string &message) {
         if (socket && socket->is_open()) {
             try {
                 std::string message_with_newline = message + "\n";
@@ -58,10 +66,10 @@ public:
                                          });
             } catch (const boost::system::system_error &e) {
                 std::cerr << "Error: remote_endpoint failed: " << e.what() << "\n";
-                auto it = std::find(peers_.begin(), peers_.end(), socket);
-                if (it != peers_.end()) {
-                    peers_.erase(it);
-                }
+                /*     auto it = std::find(peers_.begin(), peers_.end(), socket);
+                     if (it != peers_.end()) {
+                         peers_.erase(it);
+                     }*/
             }
         } else {
             std::cerr << "Socket is not open. Cannot send message.\n";
@@ -75,7 +83,11 @@ public:
             std::cout << "Preparing to send response\n";
 
             std::string answer = "Your message is '" + data + "'. " + GetRandomPhrase();
-            auto sock_ptr = socket_by_peer(rem);
+            auto sock_ptr = &socket;// socket_by_peer(rem);
+
+            if (data.find("Ping") != std::string::npos) {
+                answer = "Pong! " + GetRandomPhrase();
+            }
 
             if (sock_ptr) {
                 SendMessageToPeer(sock_ptr, answer);
@@ -119,7 +131,7 @@ private:
         return phrases[distribution(generator)];
     }
 
-    std::shared_ptr<tcp::socket> socket_by_peer(const tcp::endpoint &endpoint) {
+/*    std::shared_ptr<tcp::socket> socket_by_peer(const tcp::endpoint &endpoint) {
         for (auto &socket: peers_) {
             try {
                 if (socket->remote_endpoint() == endpoint) {
@@ -130,7 +142,7 @@ private:
             }
         }
         return nullptr;
-    }
+    }*/
 
     class Session : public std::enable_shared_from_this<Session> {
     private:
