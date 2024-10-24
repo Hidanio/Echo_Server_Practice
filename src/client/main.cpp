@@ -3,7 +3,7 @@
 #include <string>
 #include <thread>
 #include <deque>
-
+#include <utility>
 
 using boost::asio::ip::tcp;
 
@@ -11,9 +11,13 @@ class EchoClient {
 private:
     boost::asio::io_context io_context_;
     tcp::socket socket_;
-    boost::asio::steady_timer timer_;
+    boost::asio::steady_timer ping_timer_;
+    boost::asio::steady_timer reconnect_timer_;
     std::string read_msg_;
     std::deque<std::string> write_msgs_;
+
+    std::string host_;
+    short port_;
 
     void DoWrite() {
         if (write_msgs_.empty()) {
@@ -27,7 +31,6 @@ private:
                                  [this](boost::system::error_code ec, std::size_t) {
                                      if (!ec) {
                                          std::cout << "Message sent successfully." << "\n";
-                                         ResetTimer();
 
                                          write_msgs_.pop_front();
                                          if (!write_msgs_.empty()) {
@@ -35,21 +38,42 @@ private:
                                          }
                                      } else {
                                          std::cerr << "Write error: " << ec.message() << "\n";
+                                         if (ec == boost::asio::error::eof ||
+                                             ec == boost::asio::error::connection_reset ||
+                                             ec == boost::asio::error::broken_pipe) {
+                                             HandleDisconnect();
+                                         }
                                      }
                                  });
     }
 
 public:
-    EchoClient(const std::string &host, short port)
-            : socket_(io_context_), timer_(io_context_) {
-        // Resolve the host and port
+    EchoClient(std::string host, short port)
+            : socket_(io_context_), ping_timer_(io_context_), reconnect_timer_(io_context_),
+              host_(std::move(host)), port_(port) {
+        StartConnect();
+    }
+
+    void StartConnect() {
+        socket_ = tcp::socket(io_context_);
+
         tcp::resolver resolver(io_context_);
-        auto endpoints = resolver.resolve(host, std::to_string(port));
+        auto endpoints = resolver.resolve(host_, std::to_string(port_));
 
-        boost::asio::connect(socket_, endpoints);
-
-        StartRead();
-        StartTimer();
+        boost::asio::async_connect(socket_, endpoints,
+                                   [this](boost::system::error_code ec, const tcp::endpoint&) {
+                                       if (!ec) {
+                                           std::cout << "Connected to the server." <<"\n";
+                                           StartRead();
+                                           StartTimer();
+                                           if (!write_msgs_.empty()) {
+                                               DoWrite();
+                                           }
+                                       } else {
+                                           std::cerr << "Connect failed: " << ec.message() <<"\n";
+                                           AttemptReconnect();
+                                       }
+                                   });
     }
 
     void StartRead() {
@@ -61,17 +85,21 @@ public:
 
                                               std::cout << "Response from server: " << response << "\n";
 
-                                              StartTimer();
                                               StartRead();
                                           } else {
                                               std::cerr << "Read error: " << ec.message() << "\n";
+                                              if (ec == boost::asio::error::eof ||
+                                                  ec == boost::asio::error::connection_reset ||
+                                                  ec == boost::asio::error::broken_pipe) {
+                                                  HandleDisconnect();
+                                              }
                                           }
                                       });
     }
 
     void StartTimer() {
-        timer_.expires_after(std::chrono::seconds(5));
-        timer_.async_wait([this](boost::system::error_code ec) {
+        ping_timer_.expires_after(std::chrono::seconds(5));
+        ping_timer_.async_wait([this](boost::system::error_code ec) {
             if (!ec) {
                 SendMessage("Ping!");
                 StartTimer();
@@ -82,7 +110,35 @@ public:
     }
 
     void ResetTimer() {
-        StartTimer();
+        ping_timer_.expires_after(std::chrono::seconds(5));
+    }
+
+    void HandleDisconnect() {
+        std::cout << "Connection lost. Attempting to reconnect..." <<"\n";
+
+        boost::system::error_code ec;
+        socket_.close(ec);
+
+        if (ec) {
+            std::cerr << "Error closing socket: " << ec.message() <<"\n";
+        }
+
+        write_msgs_.clear();
+        ping_timer_.cancel();
+
+        AttemptReconnect();
+    }
+
+    void AttemptReconnect() {
+        reconnect_timer_.expires_after(std::chrono::seconds(5));
+        reconnect_timer_.async_wait([this](boost::system::error_code ec) {
+            if (!ec) {
+                std::cout << "Reconnecting..." <<"\n";
+                StartConnect();
+            } else {
+                std::cerr << "Reconnect timer error: " << ec.message() <<"\n";
+            }
+        });
     }
 
     void Run() {
@@ -97,6 +153,10 @@ public:
         std::cout << "Let's send message" << "\n";
         boost::asio::post(io_context_,
                           [this, message]() {
+                              if (!socket_.is_open()) {
+                                  std::cout << "Socket is not open. Message not sent." <<"\n";
+                                  return;
+                              }
                               bool write_in_progress = !write_msgs_.empty();
                               write_msgs_.push_back(message + "\n");
 
@@ -111,7 +171,7 @@ public:
 int main() {
     try {
         std::string host = "127.0.0.1";
-        short port = 5001;
+        short port = 5002;
 
         EchoClient client(host, port);
 
