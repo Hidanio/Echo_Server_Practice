@@ -14,10 +14,13 @@ private:
     struct PingInfo {
         PingInfo(boost::asio::io_context &io_context)
                 : timeout_timer(io_context) {}
+
         uint64_t epoch;
         boost::asio::steady_timer timeout_timer;
     };
 
+
+#pragma region fields
     uint64_t last_epoch_ = 0;
     std::unordered_map<uint64_t, std::shared_ptr<PingInfo>> active_pings_;
     boost::asio::steady_timer ping_timer_;
@@ -30,6 +33,8 @@ private:
 
     std::string host_;
     short port_;
+
+#pragma endregion fields
 
     void SendPing() {
         uint64_t epoch = ++last_epoch_;
@@ -179,7 +184,7 @@ public:
         reconnect_timer_.cancel();
         ping_timer_.cancel();
 
-        for (auto &pair : active_pings_) {
+        for (auto &pair: active_pings_) {
             pair.second->timeout_timer.cancel();
         }
         active_pings_.clear();
@@ -220,12 +225,30 @@ public:
     }
 };
 
+struct Server {
+    std::string host = "127.0.0.1";
+    short port;
+
+    Server(short port) : port(port) {
+
+    }
+};
+
 int main() {
     try {
         boost::asio::io_context io_context;
 
+        Server hosts[1] = {
+                Server(5002)
+        };
+
+
         std::string host = "127.0.0.1";
         short port = 5002;
+
+        for (const auto hosts: host) {
+
+        }
 
         auto client = std::make_shared<EchoClient>(io_context, host, port);
         client->Start();
